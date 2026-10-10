@@ -44,7 +44,9 @@ def configure_logging() -> logging.Logger:
 
 app = FastAPI(title="Copernicus Quant Data Service", version="0.1.0")
 
-app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173"])
+app.add_middleware(
+    CORSMiddleware, allow_origins=["http://localhost:5173", "http://localhost:4173"]
+)
 
 logger = configure_logging()
 logger.info("Starting application")

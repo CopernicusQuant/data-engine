@@ -34,7 +34,28 @@ feature_groups = {
         "return_60d",
         "up_ratio_5d",
         "up_ratio_20d",
-    ]
+    ],
+    "marketactivity": [
+        "turnover_ma_5_bias",
+        "turnover_ma_20_bias",
+        "amplitude",
+        "amplitude_ma_5",
+        "amplitude_ma_20",
+        "activity_score_60",
+        "thin_trade_amplitude_score_60",
+        "turnover_without_move_score_60",
+        "amplitude_quantile_60",
+        "turnover_quantile_60",
+    ],
+    "macd": [
+        "macd_ema_slow",
+        "macd_ema_fast",
+        "macd_diff",
+        "macd_dea",
+        "macd_hist",
+        "macd_dead",
+        "macd_gold",
+    ],
 }
 
 
@@ -226,11 +247,12 @@ class DataHandler:
                 "adj_high",
                 "adj_low",
                 "adj_vol",
+                "turnover",
             ]
         ]
         feature_df = self.slice_df(
             self.data_store.read_feature(ts_code=ts_code), window=window
-        )[["ts_code", "trade_date", *feature_groups[group]]]
+        )[["trade_date", *feature_groups[group]]]
 
         return stock_df, feature_df
 

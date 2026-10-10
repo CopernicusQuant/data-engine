@@ -307,8 +307,8 @@ def compute_macd(
     result["macd_dea"] = dea.astype("float32")
     result["macd_hist"] = macd_hist.astype("float32")
 
-    macd_gold = ((macd_hist.shift(1) < 0) & (macd_hist > 0)).astype(int)
-    macd_dead = ((macd_hist.shift(1) > 0) & (macd_hist < 0)).astype(int)
+    macd_gold = ((macd_hist.shift(1) <= 0) & (macd_hist > 0)).astype(int)
+    macd_dead = ((macd_hist.shift(1) >= 0) & (macd_hist < 0)).astype(int)
     result["macd_dead"] = macd_dead
     result["macd_gold"] = macd_gold
 
