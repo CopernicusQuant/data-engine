@@ -247,24 +247,31 @@ class StockDataStore:
             pq.write_table(table, sink, compression="zstd", compression_level=3)
         return path, len(data)
 
-    def save_features(self, combined_features_df: pd.DataFrame) -> None:
-        """
-        Save the calculated features to the R2 storage.
+    # def save_features(self, combined_features_df: pd.DataFrame) -> None:
+    #     """
+    #     Save the calculated features to the R2 storage.
 
-        Args:
-            combined_features_df: pd.DataFrame, the complete features of all stocks
-        """
-        if combined_features_df.index.nlevels != 2:
-            raise ValueError(
-                "The calculated feature dataframe should have `ts_code` and `trade_date` as indices"
-            )
-        for ts_code, feature_df in combined_features_df.groupby(
-            level="ts_code", sort=False
-        ):
-            table = pa.Table.from_pandas(feature_df.reset_index(), preserve_index=False)
-            feature_path = self._feature_path(ts_code=ts_code)
-            with self.fs.open_output_stream(feature_path) as sink:
-                pq.write_table(table, sink, compression="zstd", compression_level=3)
+    #     Args:
+    #         combined_features_df: pd.DataFrame, the complete features of all stocks
+    #     """
+    #     if combined_features_df.index.nlevels != 2:
+    #         raise ValueError(
+    #             "The calculated feature dataframe should have `ts_code` and `trade_date` as indices"
+    #         )
+    #     for ts_code, feature_df in combined_features_df.groupby(
+    #         level="ts_code", sort=False
+    #     ):
+    #         table = pa.Table.from_pandas(feature_df.reset_index(), preserve_index=False)
+    #         feature_path = self._feature_path(ts_code=ts_code)
+    #         with self.fs.open_output_stream(feature_path) as sink:
+    #             pq.write_table(table, sink, compression="zstd", compression_level=3)
+
+    def save_feature(self, ts_code: str, feature_df: pd.DataFrame) -> str:
+        table = pa.Table.from_pandas(feature_df.reset_index(), preserve_index=False)
+        feature_path = self._feature_path(ts_code=ts_code)
+        with self.fs.open_output_stream(feature_path) as sink:
+            pq.write_table(table, sink, compression="zstd", compression_level=3)
+        return ts_code
 
     def _stock_path(self, ts_code: str | None = None) -> str:
         if ts_code is None:
@@ -311,7 +318,7 @@ class StockDataStore:
             "%Y%m%d"
         )
         if self.runtime_env == "dev":
-            sp_500 = sp_500[:50]
+            sp_500 = sp_500[:100]
         table = pa.Table.from_pandas(sp_500, preserve_index=False)
         with self.fs.open_output_stream(self._stock_list_path()) as sink:
             csv.write_csv(table, sink)
