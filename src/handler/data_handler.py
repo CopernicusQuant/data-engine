@@ -1,5 +1,7 @@
 import logging
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from enum import StrEnum
 
 import pandas as pd
@@ -9,6 +11,8 @@ from src.fetcher import StockDataFetcher
 from src.store import StockDataStore
 
 logger = logging.getLogger(__name__)
+
+MAX_WORKERS = 10
 
 
 class DataWindow(StrEnum):
@@ -123,15 +127,46 @@ class DataHandler:
 
     def _update_features(self) -> float:
         start_time = time.perf_counter()
+        tickers = self.data_store.list_stock_tickers()
+        # compute features
         try:
             all_stocks = self.data_store.load_all_stocks()
             stocks_info = self.data_store.stock_list_df
             all_features = self.calculator.compute_all_stock_features(
                 combined_stock_df=all_stocks, combined_info_df=stocks_info
             )
-            self.data_store.save_features(all_features)
+            # self.data_store.save_features(all_features)
         except Exception as exc:  # noqa: BLE001
             logger.error(f"Failed to update features: {exc!s}")
+        # upload features
+        if all_features.index.nlevels != 2:
+            raise ValueError(
+                "The calculated feature dataframe should have `ts_code` and `trade_date` as indices"
+            )
+        groups = all_features.groupby(level="ts_code", sort=False)
+        counter_lock = threading.Lock()
+        completed = 0
+        with ThreadPoolExecutor(
+            max_workers=MAX_WORKERS, thread_name_prefix="feature-update"
+        ) as executor:
+            futures = {
+                executor.submit(
+                    self.data_store.save_feature, ticker, feature_df
+                ): ticker
+                for ticker, feature_df in groups
+            }
+            for future in as_completed(futures):
+                ticker = futures[future]
+                try:
+                    future.result()
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(f"failed to save features for {ticker}: {exc!s}")
+                finally:
+                    with counter_lock:
+                        completed += 1
+                        if completed % 10 == 0 or completed == len(tickers):
+                            logger.info(f"{completed}/{len(tickers)} task executed")
+
         self.data_store.clear_feature_cache()  # clear features lru cache
         end_time = time.perf_counter()
         time_spent = end_time - start_time
@@ -161,25 +196,42 @@ class DataHandler:
             kwargs["end_date"] = start_date
 
         start_time = time.perf_counter()
-
-        for i, ticker in enumerate(tickers):
-            try:
-                stock_df = self.fetcher.get_us_daily(ticker, **kwargs)
-                if stock_df is None:
-                    raise RuntimeError(f"Fetcher returned no data: {ticker}")
-                self.data_store.save_stock(
-                    stock_df=stock_df,
-                    refresh=True,  # we should replace the existing data in this mode
-                )
-            except Exception as exc:  # noqa: BLE001
-                logger.warning(f"failed to fetch data for {ticker}: {exc!s}")
-
-            if (i + 1) % 10 == 0:
-                logger.info(f"{(i + 1)}/{len(tickers)} task executed")
+        # new concurrent pattern
+        completed = 0
+        counter_lock = threading.Lock()
+        with ThreadPoolExecutor(
+            max_workers=MAX_WORKERS, thread_name_prefix="stock-update"
+        ) as executor:
+            futures = {
+                executor.submit(self._fetch_and_save_stock, ticker, kwargs): ticker
+                for ticker in tickers
+            }
+            for future in as_completed(futures):
+                ticker = futures[future]
+                try:
+                    future.result()
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(f"failed to fetch data for {ticker}: {exc!s}")
+                finally:
+                    with counter_lock:
+                        completed += 1
+                        if completed % 10 == 0 or completed == len(tickers):
+                            logger.info(f"{completed}/{len(tickers)} task executed")
         self.data_store.clear_stock_cache()  # clear stock lru cache
         end_time = time.perf_counter()
         time_spent = end_time - start_time
         return time_spent
+
+    def _fetch_and_save_stock(self, ticker: str, kwargs: dict[str, str]) -> str:
+        stock_df = self.fetcher.get_us_daily(ticker, **kwargs)
+        if stock_df is None:
+            raise RuntimeError(f"Fetcher returned no data: {ticker}")
+
+        self.data_store.save_stock(
+            stock_df=stock_df,
+            refresh=True,
+        )
+        return ticker
 
     def _update_indices(
         self, start_date: str | None = None, end_date: str | None = None
